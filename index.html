@@ -91,7 +91,8 @@ body {
   transition: border-color .2s;
 }
 .form input[type="text"]:focus { border-color: var(--accent); }
-.form input[type="date"] {
+.form input[type="date"],
+.form input[type="time"] {
   padding: .6rem .9rem;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -102,7 +103,8 @@ body {
   outline: none;
   transition: border-color .2s;
 }
-.form input[type="date"]:focus { border-color: var(--accent); }
+.form input[type="date"]:focus,
+.form input[type="time"]:focus { border-color: var(--accent); }
 .form select {
   padding: .6rem .9rem;
   border: 1px solid var(--border);
@@ -284,6 +286,7 @@ body {
         <option value="low">優先度：低</option>
       </select>
       <input type="date" id="dueDateInput">
+      <input type="time" id="dueTimeInput" title="期限の時刻（任意）">
       <button class="btn-add" id="addBtn">追加</button>
     </div>
   </div>
@@ -320,6 +323,25 @@ function save() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)); } catch {}
 }
 
+// 期限入力の読み取り（日付のみ: "YYYY-MM-DD"、時刻あり: "YYYY-MM-DDTHH:MM"）
+function readDue() {
+  const date = document.getElementById('dueDateInput').value;
+  const time = document.getElementById('dueTimeInput').value;
+  if (!date) return '';
+  return time ? `${date}T${time}` : date;
+}
+
+// 期限の日時（日付のみの場合はその日の終わり）
+function dueDate(due) {
+  if (due.includes('T')) return new Date(due);
+  const [y, m, d] = due.split('-').map(Number);
+  return new Date(y, m - 1, d, 23, 59, 59, 999);
+}
+
+function isOverdue(t) {
+  return !!t.due && !t.done && dueDate(t.due) < new Date();
+}
+
 // タスク追加
 function addTask() {
   const text = document.getElementById('taskInput').value.trim();
@@ -328,12 +350,13 @@ function addTask() {
     id: Date.now(),
     text,
     priority: document.getElementById('prioritySelect').value,
-    due: document.getElementById('dueDateInput').value,
+    due: readDue(),
     done: false,
     createdAt: new Date().toISOString()
   });
   document.getElementById('taskInput').value = '';
   document.getElementById('dueDateInput').value = '';
+  document.getElementById('dueTimeInput').value = '';
   save();
   render();
 }
@@ -353,23 +376,23 @@ function deleteTask(id) {
 
 // フィルタリング
 function filtered() {
-  const today = new Date().toISOString().slice(0, 10);
   switch (currentFilter) {
     case 'active':  return tasks.filter(t => !t.done);
     case 'done':    return tasks.filter(t => t.done);
     case 'high':    return tasks.filter(t => t.priority === 'high');
-    case 'overdue': return tasks.filter(t => t.due && t.due < today && !t.done);
+    case 'overdue': return tasks.filter(isOverdue);
     default:        return tasks;
   }
 }
 
 // 期限表示
-function dueLabel(due) {
-  if (!due) return '';
-  const today = new Date().toISOString().slice(0, 10);
-  const d = new Date(due);
-  const label = `${d.getMonth()+1}/${d.getDate()}`;
-  const overdue = due < today;
+function dueLabel(t) {
+  if (!t.due) return '';
+  const d = dueDate(t.due);
+  const label = t.due.includes('T')
+    ? `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+    : `${d.getMonth()+1}/${d.getDate()}`;
+  const overdue = isOverdue(t);
   return `<span class="due-date ${overdue ? 'overdue' : ''}">📅 ${label}${overdue ? ' 期限切れ' : ''}</span>`;
 }
 
@@ -393,7 +416,7 @@ function render() {
         <p class="task-text">${escHtml(t.text)}</p>
         <div class="task-meta">
           <span class="priority-badge ${t.priority}">${{high:'高',medium:'中',low:'低'}[t.priority]}</span>
-          ${dueLabel(t.due)}
+          ${dueLabel(t)}
         </div>
       </div>
       <button class="btn-delete" onclick="deleteTask(${t.id})" aria-label="削除">✕</button>
